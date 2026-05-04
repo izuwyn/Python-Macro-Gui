@@ -6,6 +6,7 @@ import pyautogui
 import pyperclip
 import openpyxl
 from openpyxl.styles import PatternFill
+from datetime import datetime
 import keyboard
 
 # ── Default Config ────────────────────────────────────────────────────────────
@@ -84,7 +85,6 @@ class MacroApp:
         panel = tk.Frame(self.root, bg=C['panel'], bd=0, relief='flat')
         panel.pack(fill='x', padx=20)
 
-        # Excel file
         self._section_label(panel, "EXCEL FILE")
         file_row = tk.Frame(panel, bg=C['panel'])
         file_row.pack(fill='x', padx=12, pady=(0, 10))
@@ -92,7 +92,6 @@ class MacroApp:
         self.file_entry.pack(side='left', fill='x', expand=True, ipady=6, ipadx=6)
         tk.Button(file_row, text="Browse", command=self._browse, bg=C['border'], fg=C['text'], relief='flat', font=("Courier New", 9), cursor='hand2', padx=10).pack(side='left', padx=(6, 0))
 
-        # Config Row (Start At & Max Records)
         conf_row = tk.Frame(panel, bg=C['panel'])
         conf_row.pack(fill='x', padx=12, pady=(0, 10))
 
@@ -106,23 +105,19 @@ class MacroApp:
         self._section_label(right_col, "MAX TO PROCESS", pad=0)
         tk.Spinbox(right_col, from_=1, to=10000, textvariable=self.max_records, bg=C['input_bg'], fg=C['text'], relief='flat', font=("Courier New", 10), bd=0).pack(fill='x', ipady=6)
 
-        # Pack value
         self._section_label(panel, "PACK VALUE")
         tk.Entry(panel, textvariable=self.pack_value, bg=C['input_bg'], fg=C['accent'], relief='flat', font=("Courier New", 10, "bold"), bd=0).pack(fill='x', padx=12, ipady=6, ipadx=6, pady=(0, 14))
 
-        # Stats
         stats = tk.Frame(self.root, bg=C['bg'])
         stats.pack(fill='x', padx=20, pady=10)
         self._stat_box(stats, "PROCESSED", self.processed, C['accent'])
         self._stat_box(stats, "SKIPPED",   self.skipped,   '#f0a500')
         self._stat_box(stats, "ERRORS",    self.errors,    C['danger'])
 
-        # Progress bar
         self.prog_canvas = tk.Canvas(self.root, bg=C['border'], height=4, bd=0, highlightthickness=0)
         self.prog_canvas.pack(fill='x', padx=20, pady=(0, 10))
         self.prog_bar = self.prog_canvas.create_rectangle(0, 0, 0, 4, fill=C['accent'], width=0)
 
-        # Log
         self.log = scrolledtext.ScrolledText(self.root, bg=C['input_bg'], fg=C['text'], font=("Courier New", 9), relief='flat', state='disabled', wrap='word')
         self.log.pack(fill='both', expand=True, padx=20, pady=(0, 10))
         self.log.tag_config('ok', foreground=C['accent'])
@@ -130,7 +125,6 @@ class MacroApp:
         self.log.tag_config('err', foreground=C['danger'])
         self.log.tag_config('head', foreground=C['text'])
 
-        # Buttons
         btn_row = tk.Frame(self.root, bg=C['bg'])
         btn_row.pack(fill='x', padx=20, pady=(0, 20))
         self.start_btn = tk.Button(btn_row, text="▶  START", command=self.start_macro, bg=C['accent'], font=("Courier New", 11, "bold"), pady=10)
@@ -154,7 +148,6 @@ class MacroApp:
         if path: self.excel_path.set(path)
 
     def reset_progress(self):
-        """ Triggered by F5 - Resets UI counters and start position """
         if self.running: return
         self.processed.set(0)
         self.skipped.set(0)
@@ -220,14 +213,13 @@ class MacroApp:
         skip_count = self.skipped.get()
         err_count  = self.errors.get()
 
-        for i, (row_num, value) in enumerate(values):
+        for i, (row_num, value, col_b, col_c) in enumerate(values):
             if self.stop_flag.is_set(): break
 
-            # Update the UI to show which record we are on (for next resume)
             current_idx = self.start_record.get()
-            self._log(f"[{current_idx}] {value}", 'head')
+            self._log(f"[{current_idx}] A={value} | B={col_b} | C={col_c}", 'head')
             
-            result = self._process_record(value)
+            result = self._process_record(value, col_b, col_c)
 
             if result == 'done':
                 done_count += 1
@@ -239,7 +231,6 @@ class MacroApp:
                 self._color_cell(ws, row_num, "FF4F4F")
                 self._log(f"  ✗ {result}", 'err')
 
-            # Update indices for next run
             self.root.after(0, lambda: self.start_record.set(current_idx + 1))
             self.root.after(0, lambda d=done_count: self.processed.set(d))
             self.root.after(0, lambda s=skip_count: self.skipped.set(s))
@@ -250,100 +241,112 @@ class MacroApp:
         self._log("── Session Ended / Excel Saved ──", 'head')
         self._set_running(False); self.running = False
 
+    def _format_cell(self, val):
+        """Convert cell value to a clean string, formatting dates as M/D."""
+        if val is None:
+            return ""
+        if isinstance(val, datetime):
+            return val.strftime("%#m/%#d")  # Windows: no leading zeros → "4/17"
+        return str(val).strip()
+
     def _load_excel(self):
         wb = openpyxl.load_workbook(self.excel_path.get())
         ws = wb.active
         values = []
 
-        start_row = 1
-        
+        start_row = self.start_record.get()
+
         for i, row in enumerate(ws.iter_rows(min_row=start_row), start=start_row):
             if row[0].value:
-                values.append((i, row[0].value))
+                col_a = row[0].value
+                col_b = self._format_cell(row[1].value if len(row) > 1 else None)
+                col_c = self._format_cell(row[2].value if len(row) > 2 else None)
+                values.append((i, col_a, col_b, col_c))
             if len(values) >= self.max_records.get():
                 break
+
         return wb, ws, values
 
     def _color_cell(self, ws, row_num, hex_color):
         ws.cell(row=row_num, column=1).fill = PatternFill("solid", fgColor=hex_color)
 
-    def _process_record(self, value):
+    def _process_record(self, value, col_b, col_c):
         try:
-            pyperclip.copy("") 
+            pyperclip.copy("")
             pyperclip.copy(str(value))
 
+            self._click(COORD_ACCESS_MAIN, delay=0.5)
 
-            self._click(COORD_ACCESS_MAIN, delay=0.4) 
-            
-            # 3. Open Search Dialog with a "Retry" buffer
-            self._hotkey('ctrl', 'f', delay=0.5)
-            
-            # Handshake: Wait up to 1 second for the search window to actually exist
+            self._hotkey('ctrl', 'f', delay=0.7)
+
             search_ready = False
             for _ in range(5):
                 if self._pixel_matches(PIXEL_SEARCH_OPEN):
                     search_ready = True
                     break
-                time.sleep(0.2) # Wait 200ms and check again
+                time.sleep(0.3)
 
             if not search_ready:
                 return 'Search Dialog Timed Out'
 
-            # 4. Input Value and Search
             self._hotkey('ctrl', 'a', delay=0.2)
             self._hotkey('ctrl', 'v', delay=0.2)
-            self._press('enter', delay=0.8) # Searching can be slow
+            self._press('enter', delay=0.8)
 
-            # 5. Verify Record Found - Wait for Access to jump to the record
             record_found = False
             for _ in range(5):
                 if self._pixel_matches(PIXEL_RECORD_OPEN):
                     record_found = True
                     break
-                time.sleep(0.2)
+                time.sleep(0.5)
 
             if not record_found:
-                self._press('escape', delay=0.3) 
+                self._press('escape', delay=0.5)
                 return 'not_found'
 
-            # 6. Close search dialog
-            self._press('escape', delay=0.3)
+            self._press('escape', delay=0.5)
 
-            # 7. Navigate to the PACK field (6 tabs)
-            # Increased delay between tabs to prevent "skipping" fields
             for _ in range(6):
-                self._press('tab', delay=0.01) 
+                self._press('tab', delay=0.01)
 
-            # 8. Check existing value
-            pyperclip.copy("") # Clear to ensure we don't read old data
+            pyperclip.copy("")
             self._hotkey('ctrl', 'c', delay=0.2)
-            
-            # Give the clipboard a moment to populate
+
             clipboard_content = ""
-            for _ in range(5): # 5 attempts to read clipboard
+            for _ in range(5):
                 clipboard_content = pyperclip.paste().strip()
-                if clipboard_content: 
+                if clipboard_content:
                     break
                 time.sleep(0.1)
 
-            # --- THE "CONTAINS" CHECK ---
-            # Converts everything to uppercase so "nvc pack" or "NVC Pack" still matches
-            if "NVC PACK" in clipboard_content.upper():
+            if "TRIAGE COMP" in clipboard_content.upper():
                 self._log(f"  → Found '{clipboard_content}', skipping.", 'skip')
                 return 'skip'
 
-            # 9. Update the field if "NVC PACK" was NOT found
+            # Write PACK value
             pyperclip.copy(self.pack_value.get())
             self._hotkey('ctrl', 'v', delay=0.05)
-            
-            # 10. Commit the change
-            self._press('enter', delay=0.2)
-            
+            self._press('tab', delay=0.2)        # commits PACK, lands on next field
+
+            # ── Column B ──────────────────────────────────────────────────────
+            if col_b:
+                for _ in range(3):
+                    self._press('tab', delay=0.15)
+                pyperclip.copy(col_b)
+                self._hotkey('ctrl', 'v', delay=0.1)
+
+            # ── Column C ──────────────────────────────────────────────────────
+            if col_c:
+                for _ in range(2):
+                    self._press('tab', delay=0.15)
+                pyperclip.copy(col_c)
+                self._hotkey('ctrl', 'v', delay=0.1)
+
             return 'done'
 
         except Exception as e:
             return f"Error: {str(e)}"
-        
+
     # Basic UI Action Wrappers
     def _click(self, coord, delay=T_CLICK):
         pyautogui.click(coord[0], coord[1]); time.sleep(delay)

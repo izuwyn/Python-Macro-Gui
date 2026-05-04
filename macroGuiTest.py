@@ -1,3 +1,4 @@
+import pynput
 import customtkinter as ctk
 
 class MacroStepRow(ctk.CTkFrame):
@@ -41,7 +42,15 @@ class MacroMakerApp(ctk.CTk):
         
         # Add Step Button (For testing our UI)
         self.add_test_btn = ctk.CTkButton(self.sidebar_frame, text="Add Manual Step", command=self.add_dummy_step)
-        self.add_test_btn.grid(row=1, column=0, padx=20, pady=10)
+        self.add_test_btn.grid(row=1, column=0, padx=15, pady=15)
+
+        # Record Button
+        self.add_record_btn = ctk.CTkButton(self.sidebar_frame, text="Start Recording")
+        self.add_record_btn.grid(row=2, column=0, padx=15, pady=15)
+
+        # Stop Record Button
+        self.add_stop_record_btn = ctk.CTkButton(self.sidebar_frame, text="Stop Recording")
+        self.add_stop_record_btn.grid(row=3, column=0, padx=15, pady=15)
 
         # --- Main Macro List ---
         self.main_frame = ctk.CTkFrame(self)
@@ -59,6 +68,17 @@ class MacroMakerApp(ctk.CTk):
         """Helper to test the list adding functionality"""
         new_step = MacroStepRow(self.scroll_container, action_text="MOUSE CLICK", timestamp="1.24")
         new_step.pack(fill="x", padx=5, pady=5)
+
+    def on_press(key):
+        key_list = []
+        try:
+            key_list.append(pynput.keyboard.Key)
+        except AttributeError:
+            print("What did you do bruh")
+
+    def on_release(key):
+        if key == pynput.keyboard.Key.esc:
+            return False
 
 if __name__ == "__main__":
     app = MacroMakerApp()
