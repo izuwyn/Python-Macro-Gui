@@ -1,8 +1,21 @@
+import os
+import sys
+import ctypes
+
+# Set unique AppUserModelID for Windows taskbar icon grouping
+if sys.platform == "win32":
+    try:
+        myappid = 'antigravity.python.macro.studio.v1'
+        ctypes.windll.shell32.SetCurrentProcessExplicitAppUserModelID(myappid)
+    except Exception:
+        pass
+
 import pynput as p
 import customtkinter as ctk
 import time
 import threading
 import pyautogui
+from PIL import Image, ImageTk
 
 # Configure PyAutoGUI settings for high responsiveness
 pyautogui.PAUSE = 0.0
@@ -139,6 +152,32 @@ class MacroMakerApp(ctk.CTk):
         self.geometry("960x650")
         self.resizable(True, True)
 
+        # Set window icon
+        try:
+            current_dir = os.path.dirname(os.path.abspath(__file__))
+            ico_path = os.path.join(current_dir, "icon.ico")
+            png_path = os.path.join(current_dir, "pfp.png")
+            
+            # Generate icon.ico dynamically from pfp.png if it does not exist
+            if not os.path.exists(ico_path) and os.path.exists(png_path):
+                try:
+                    img = Image.open(png_path)
+                    img.save(ico_path, format="ICO", sizes=[(16, 16), (32, 32), (48, 48), (64, 64), (128, 128), (256, 256)])
+                except Exception as ex:
+                    print(f"Could not generate icon.ico: {ex}")
+            
+            # Use iconbitmap if ico file exists (works natively on Windows)
+            if os.path.exists(ico_path) and sys.platform == "win32":
+                self.iconbitmap(ico_path)
+            elif os.path.exists(png_path):
+                # Fallback / non-Windows platforms
+                icon_img = Image.open(png_path)
+                icon_photo = ImageTk.PhotoImage(icon_img)
+                self.iconphoto(False, icon_photo)
+                self._icon_ref = icon_photo  # Keep reference to prevent garbage collection
+        except Exception as e:
+            print(f"Error loading window icon: {e}")
+
         self.grid_columnconfigure(1, weight=1)
         self.grid_rowconfigure(0, weight=1)
 
@@ -162,20 +201,20 @@ class MacroMakerApp(ctk.CTk):
         self.record_label = ctk.CTkLabel(self.sidebar_frame, text="Recording Controls", font=ctk.CTkFont(size=12, weight="bold"), text_color="gray")
         self.record_label.grid(row=1, column=0, padx=15, pady=(10, 2), sticky="w")
 
-        self.add_record_btn = ctk.CTkButton(self.sidebar_frame, text="Start Recording", fg_color="#b32424", hover_color="#8c1c1c", command=self.start_recording)
+        self.add_record_btn = ctk.CTkButton(self.sidebar_frame, text="Start Recording (F1)", fg_color="#b32424", hover_color="#8c1c1c", command=self.start_recording)
         self.add_record_btn.grid(row=2, column=0, padx=15, pady=5, sticky="ew")
 
-        self.add_stop_record_btn = ctk.CTkButton(self.sidebar_frame, text="Stop Recording", state="disabled", fg_color="gray25", command=self.stop_recording)
+        self.add_stop_record_btn = ctk.CTkButton(self.sidebar_frame, text="Stop Recording (F2)", state="disabled", fg_color="gray25", command=self.stop_recording)
         self.add_stop_record_btn.grid(row=3, column=0, padx=15, pady=5, sticky="ew")
         
         # Playback section
         self.playback_label = ctk.CTkLabel(self.sidebar_frame, text="Playback Controls", font=ctk.CTkFont(size=12, weight="bold"), text_color="gray")
         self.playback_label.grid(row=4, column=0, padx=15, pady=(15, 2), sticky="w")
         
-        self.play_btn = ctk.CTkButton(self.sidebar_frame, text="Play Macro", fg_color="#2e7d32", hover_color="#1b5e20", command=self.start_playback)
+        self.play_btn = ctk.CTkButton(self.sidebar_frame, text="Play Macro (F3)", fg_color="#2e7d32", hover_color="#1b5e20", command=self.start_playback)
         self.play_btn.grid(row=5, column=0, padx=15, pady=5, sticky="ew")
         
-        self.stop_play_btn = ctk.CTkButton(self.sidebar_frame, text="Stop Playback", state="disabled", fg_color="gray25", command=self.stop_playback)
+        self.stop_play_btn = ctk.CTkButton(self.sidebar_frame, text="Stop Playback (F4)", state="disabled", fg_color="gray25", command=self.stop_playback)
         self.stop_play_btn.grid(row=6, column=0, padx=15, pady=5, sticky="ew")
         
         # Playback Options
@@ -248,6 +287,13 @@ class MacroMakerApp(ctk.CTk):
 
         # Override window close protocol
         self.protocol("WM_DELETE_WINDOW", self.on_close)
+
+        # Start persistent global keyboard listener for hotkeys and recording
+        self.keyboard_listener = p.keyboard.Listener(
+            on_press=self.on_key_press,
+            on_release=self.on_key_release
+        )
+        self.keyboard_listener.start()
 
     def update_status(self, text, success=False, error=False):
         def _update():
@@ -363,12 +409,36 @@ class MacroMakerApp(ctk.CTk):
                 self.last_mouse_press = None
 
     def on_key_press(self, key):
-        if not self.recording:
+        # Check hotkeys first
+        if key == p.keyboard.Key.f1:
+            if not self.recording and not self.playback_running:
+                self.after(0, self.start_recording)
             return
             
-        # Esc key terminates recording
+        if key == p.keyboard.Key.f2:
+            if self.recording:
+                self.after(0, self.stop_recording)
+            return
+            
+        if key == p.keyboard.Key.f3:
+            if not self.recording and not self.playback_running:
+                self.after(0, self.start_playback)
+            return
+            
+        if key == p.keyboard.Key.f4:
+            if self.playback_running:
+                self.after(0, self.stop_playback)
+            return
+
+        # Esc key terminates recording/playback as fallback
         if key == p.keyboard.Key.esc:
-            self.after(0, self.stop_recording)
+            if self.recording:
+                self.after(0, self.stop_recording)
+            elif self.playback_running:
+                self.after(0, self.stop_playback)
+            return
+
+        if not self.recording:
             return
 
         cleaned = self.clean_key_name(key)
@@ -386,6 +456,10 @@ class MacroMakerApp(ctk.CTk):
 
     def on_key_release(self, key):
         if not self.recording:
+            return
+            
+        # Ignore release of control keys
+        if key in {p.keyboard.Key.f1, p.keyboard.Key.f2, p.keyboard.Key.f3, p.keyboard.Key.f4, p.keyboard.Key.esc}:
             return
             
         cleaned = self.clean_key_name(key)
@@ -409,15 +483,9 @@ class MacroMakerApp(ctk.CTk):
         self.last_event_time = self.start_time
         
         self.update_recording_buttons()
-        self.update_status("Recording (Esc to stop)...")
+        self.update_status("Recording (F2 to stop)...")
         
-        # Start background listeners
-        self.keyboard_listener = p.keyboard.Listener(
-            on_press=self.on_key_press,
-            on_release=self.on_key_release
-        )
-        self.keyboard_listener.start()
-        
+        # Start background mouse listener
         self.mouse_listener = p.mouse.Listener(
             on_click=self.on_mouse_click
         )
@@ -429,10 +497,6 @@ class MacroMakerApp(ctk.CTk):
             
         self.recording = False
         
-        if hasattr(self, 'keyboard_listener') and self.keyboard_listener:
-            self.keyboard_listener.stop()
-            self.keyboard_listener = None
-            
         if hasattr(self, 'mouse_listener') and self.mouse_listener:
             self.mouse_listener.stop()
             self.mouse_listener = None
@@ -443,10 +507,10 @@ class MacroMakerApp(ctk.CTk):
     def update_recording_buttons(self):
         if self.recording:
             self.add_record_btn.configure(state="disabled", fg_color="gray25", text="Recording...")
-            self.add_stop_record_btn.configure(state="normal", fg_color="#ff4f4f", text="Stop Recording (Esc)")
+            self.add_stop_record_btn.configure(state="normal", fg_color="#ff4f4f", text="Stop Recording (F2)")
         else:
-            self.add_record_btn.configure(state="normal", fg_color="#b32424", hover_color="#8c1c1c", text="Start Recording")
-            self.add_stop_record_btn.configure(state="disabled", fg_color="gray25", text="Stop Recording")
+            self.add_record_btn.configure(state="normal", fg_color="#b32424", hover_color="#8c1c1c", text="Start Recording (F1)")
+            self.add_stop_record_btn.configure(state="disabled", fg_color="gray25", text="Stop Recording (F2)")
 
     # --- Playback Logic ---
 
@@ -476,11 +540,11 @@ class MacroMakerApp(ctk.CTk):
     def update_playback_buttons(self):
         if self.playback_running:
             self.play_btn.configure(state="disabled", fg_color="gray25", text="Playing...")
-            self.stop_play_btn.configure(state="normal", fg_color="#ff4f4f", text="Stop Playback")
+            self.stop_play_btn.configure(state="normal", fg_color="#ff4f4f", text="Stop Playback (F4)")
             self.set_gui_interactive(False)
         else:
-            self.play_btn.configure(state="normal", fg_color="#2e7d32", hover_color="#1b5e20", text="Play Macro")
-            self.stop_play_btn.configure(state="disabled", fg_color="gray25", text="Stop Playback")
+            self.play_btn.configure(state="normal", fg_color="#2e7d32", hover_color="#1b5e20", text="Play Macro (F3)")
+            self.stop_play_btn.configure(state="disabled", fg_color="gray25", text="Stop Playback (F4)")
             self.set_gui_interactive(True)
 
     def sleep_interruptible(self, seconds):
@@ -607,6 +671,8 @@ class MacroMakerApp(ctk.CTk):
     def on_close(self):
         self.stop_recording()
         self.stop_playback_flag = True
+        if hasattr(self, 'keyboard_listener') and self.keyboard_listener:
+            self.keyboard_listener.stop()
         self.destroy()
 
 
