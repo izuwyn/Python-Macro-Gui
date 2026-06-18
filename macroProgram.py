@@ -285,9 +285,11 @@ class MacroMakerApp(ctk.CTk):
         self.scroll_container = ctk.CTkScrollableFrame(self.main_frame, label_text="Macro Action List")
         self.scroll_container.grid(row=2, column=0, padx=20, pady=10, sticky="nsew")
 
-        # Coordinates Display in bottom right
-        self.coords_frame = ctk.CTkFrame(self.main_frame, fg_color="gray12", corner_radius=8, border_width=1, border_color="gray25")
+        # Coordinates Display in bottom right (fixed size, disabled propagation to prevent layout recalculations)
+        self.coords_frame = ctk.CTkFrame(self.main_frame, fg_color="gray12", corner_radius=8, border_width=1, border_color="gray25", width=170, height=32)
         self.coords_frame.grid(row=3, column=0, padx=20, pady=(0, 10), sticky="e")
+        self.coords_frame.grid_propagate(False)
+        self.coords_frame.pack_propagate(False)
 
         self.coords_badge = ctk.CTkLabel(
             self.coords_frame,
@@ -303,6 +305,7 @@ class MacroMakerApp(ctk.CTk):
         self.coords_lbl = ctk.CTkLabel(
             self.coords_frame,
             text="X: 0      Y: 0     ",
+            width=100,
             font=ctk.CTkFont(size=11, family="Consolas", weight="bold"),
             text_color="gray85"
         )
@@ -327,7 +330,7 @@ class MacroMakerApp(ctk.CTk):
             self.coords_lbl.configure(text=f"X: {x:<5} Y: {y:<5}")
         except Exception:
             pass
-        self.after(50, self.update_mouse_coords)
+        self.after(150, self.update_mouse_coords)
 
     def update_status(self, text, success=False, error=False):
         def _update():
@@ -410,11 +413,17 @@ class MacroMakerApp(ctk.CTk):
         if not self.recording:
             return
             
-        # Ignore clicks inside the application window
-        win_x = self.winfo_x()
-        win_y = self.winfo_y()
-        win_w = self.winfo_width()
-        win_h = self.winfo_height()
+        # Ignore clicks inside the application window (scale logical coordinates to physical)
+        try:
+            scaling = self._get_window_scaling()
+        except Exception:
+            scaling = 1.0
+            
+        win_x = self.winfo_x() * scaling
+        win_y = self.winfo_y() * scaling
+        win_w = self.winfo_width() * scaling
+        win_h = self.winfo_height() * scaling
+        
         if win_x <= x <= win_x + win_w and win_y <= y <= win_y + win_h:
             return
 
