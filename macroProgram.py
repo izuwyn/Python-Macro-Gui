@@ -285,6 +285,32 @@ class MacroMakerApp(ctk.CTk):
         self.scroll_container = ctk.CTkScrollableFrame(self.main_frame, label_text="Macro Action List")
         self.scroll_container.grid(row=2, column=0, padx=20, pady=10, sticky="nsew")
 
+        # Coordinates Display in bottom right
+        self.coords_frame = ctk.CTkFrame(self.main_frame, fg_color="gray12", corner_radius=8, border_width=1, border_color="gray25")
+        self.coords_frame.grid(row=3, column=0, padx=20, pady=(0, 10), sticky="e")
+
+        self.coords_badge = ctk.CTkLabel(
+            self.coords_frame,
+            text="CURSOR",
+            fg_color="#1f538d",
+            text_color="white",
+            corner_radius=4,
+            height=20,
+            font=ctk.CTkFont(size=9, weight="bold")
+        )
+        self.coords_badge.pack(side="left", padx=(6, 4), pady=5)
+
+        self.coords_lbl = ctk.CTkLabel(
+            self.coords_frame,
+            text="X: 0      Y: 0     ",
+            font=ctk.CTkFont(size=11, family="Consolas", weight="bold"),
+            text_color="gray85"
+        )
+        self.coords_lbl.pack(side="left", padx=(2, 8), pady=5)
+
+        # Start updating coordinates
+        self.update_mouse_coords()
+
         # Override window close protocol
         self.protocol("WM_DELETE_WINDOW", self.on_close)
 
@@ -294,6 +320,14 @@ class MacroMakerApp(ctk.CTk):
             on_release=self.on_key_release
         )
         self.keyboard_listener.start()
+
+    def update_mouse_coords(self):
+        try:
+            x, y = pyautogui.position()
+            self.coords_lbl.configure(text=f"X: {x:<5} Y: {y:<5}")
+        except Exception:
+            pass
+        self.after(50, self.update_mouse_coords)
 
     def update_status(self, text, success=False, error=False):
         def _update():
